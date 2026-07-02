@@ -54,6 +54,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Stop any conflicting containers
+        run: |
+          docker rm -f nginx_proxy fastapi_app postgres_db redis_cache 2>/dev/null || true
+
       - name: Create .env file
         run: |
           cat <<EOF > .env
@@ -67,6 +71,17 @@ jobs:
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
           ENVIRONMENT=production
           EOF
+
+      - name: Generate self-signed SSL certificate
+        run: |
+          mkdir -p certs
+          if [ ! -f certs/fullchain.pem ]; then
+            openssl req -x509 -nodes -days 365 \
+              -newkey rsa:2048 \
+              -keyout certs/privkey.pem \
+              -out certs/fullchain.pem \
+              -subj "/CN=localhost"
+          fi
 
       - name: Deploy with Docker Compose
         run: |
