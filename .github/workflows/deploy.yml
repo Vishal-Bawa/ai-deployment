@@ -7,6 +7,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -20,6 +23,10 @@ jobs:
           context: ./app
           push: false
           tags: fastapi-app:ci-test
+
+      - name: Set lowercase repository name
+        if: github.ref == 'refs/heads/main'
+        run: echo "reponame=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Log in to GitHub Container Registry
         if: github.ref == 'refs/heads/main'
@@ -35,7 +42,7 @@ jobs:
         with:
           context: ./app
           push: true
-          tags: ghcr.io/${{ github.repository }}/fastapi-app:latest
+          tags: ghcr.io/${{ env.reponame }}/fastapi-app:latest
 
   deploy:
     needs: build
@@ -46,6 +53,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Create .env file
+        run: |
+          cat <<EOF > .env
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_HOST=postgres
+          POSTGRES_PORT=5432
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          ENVIRONMENT=production
+          EOF
 
       - name: Deploy with Docker Compose
         run: |
@@ -58,26 +79,3 @@ jobs:
         run: |
           sleep 10
           curl -f http://localhost/health || (echo "Health check failed" && exit 1)
-
-  # ---------------------------------------------------------------------
-  # ALTERNATE deploy job for a REMOTE VPS instead of a self-hosted runner.
-  # Uncomment and configure secrets: SERVER_HOST, SERVER_USER, SSH_PRIVATE_KEY
-  # ---------------------------------------------------------------------
-  # deploy-remote:
-  #   needs: build
-  #   runs-on: ubuntu-latest
-  #   if: github.ref == 'refs/heads/main'
-  #   steps:
-  #     - name: Deploy over SSH
-  #       uses: appleboy/ssh-action@v1.0.3
-  #       with:
-  #         host: ${{ secrets.SERVER_HOST }}
-  #         username: ${{ secrets.SERVER_USER }}
-  #         key: ${{ secrets.SSH_PRIVATE_KEY }}
-  #         script: |
-  #           cd /opt/ai-deploy-assignment
-  #           git pull origin main
-  #           docker compose pull
-  #           docker compose up -d --build
-  #           docker image prune -f
-  #           curl -f http://localhost/health
